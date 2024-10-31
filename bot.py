@@ -147,10 +147,10 @@ class DerivTradingBot:
                 return
                 
             trade_req = {
-                "buy": 1,
-                "price": proposal["id"],
-                "parameters": proposal
-            }
+    "buy": proposal["id"],
+    "price": proposal["ask_price"]
+}
+
             
             await self.connection.send(json.dumps(trade_req))
             response = await self.connection.recv()
