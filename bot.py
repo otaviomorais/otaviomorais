@@ -7,13 +7,13 @@ import logging
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-
 # Configure logging
 logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
 
 class DerivTradingBot:
     def __init__(self):
@@ -33,8 +33,8 @@ class DerivTradingBot:
         self.symbol = "R_100"
         self.stake_amount = 10.00
         self.contract_duration = 5
-        self.contract_duration_unit = "m"  # minutes
-        self.min_price_update_count = 10  # Minimum number of price updates before trading
+        self.contract_duration_unit = "m"
+        self.min_price_update_count = 10
         
         # State tracking
         self.prices = []
@@ -45,11 +45,29 @@ class DerivTradingBot:
         self.authorized = False
         self.current_price = None
         self.last_trade_time = None
-        self.min_time_between_trades = 60  # Minimum seconds between trades
+        self.min_time_between_trades = 60
+        
+        # Trade tracking
+        self.active_trade = False
+        self.current_contract_id = None
         
         # Validate credentials
         if not self.app_id or not self.api_token:
             raise ValueError("Missing DERIV_APP_ID or DERIV_API_TOKEN environment variables")
+
+    def can_trade(self):
+        """Check if we can place a new trade based on various conditions"""
+        # Check if we have enough price history
+        if len(self.prices) < self.min_price_update_count:
+            return False
+            
+        # Check time between trades
+        if self.last_trade_time is not None:
+            time_since_last_trade = (datetime.now() - self.last_trade_time).total_seconds()
+            if time_since_last_trade < self.min_time_between_trades:
+                return False
+                
+        return True
 
     async def connect(self):
         """Establish WebSocket connection with Deriv"""
@@ -82,20 +100,6 @@ class DerivTradingBot:
             logger.error(f"Connection error: {str(e)}")
             raise
 
-    def can_trade(self):
-        """Check if we can place a new trade based on various conditions"""
-        # Check if we have enough price history
-        if len(self.prices) < self.min_price_update_count:
-            return False
-            
-        # Check time between trades
-        if self.last_trade_time is not None:
-            time_since_last_trade = (datetime.now() - self.last_trade_time).total_seconds()
-            if time_since_last_trade < self.min_time_between_trades:
-                return False
-                
-        return True
-
     async def get_price_proposal(self, contract_type):
         """Get price proposal for a contract"""
         try:
@@ -124,9 +128,26 @@ class DerivTradingBot:
             logger.error(f"Error getting price proposal: {str(e)}")
             return None
 
+    async def subscribe_to_contract(self, contract_id):
+        """Subscribe to contract updates to track when it's finished"""
+        try:
+            proposal_req = {
+                "proposal_open_contract": 1,
+                "contract_id": contract_id,
+                "subscribe": 1
+            }
+            await self.connection.send(json.dumps(proposal_req))
+            
+        except Exception as e:
+            logger.error(f"Error subscribing to contract: {str(e)}")
+
     async def place_trade(self, direction, amount=None):
         """Place a trade on Deriv with proper price proposal"""
         try:
+            if self.active_trade:
+                logger.info("Skipping trade: Another trade is already active")
+                return
+                
             if not self.authorized:
                 logger.error("Cannot place trade: Not authorized")
                 return
@@ -147,10 +168,9 @@ class DerivTradingBot:
                 return
                 
             trade_req = {
-    "buy": proposal["id"],
-    "price": proposal["ask_price"]
-}
-
+                "buy": proposal["id"],
+                "price": proposal["ask_price"]
+            }
             
             await self.connection.send(json.dumps(trade_req))
             response = await self.connection.recv()
@@ -161,12 +181,39 @@ class DerivTradingBot:
             else:
                 logger.info(f"Trade placed successfully: {direction} {amount} USD")
                 if "buy" in trade_data:
-                    contract_id = trade_data["buy"]["contract_id"]
-                    logger.info(f"Contract ID: {contract_id}")
+                    self.active_trade = True
+                    self.current_contract_id = trade_data["buy"]["contract_id"]
+                    logger.info(f"Contract ID: {self.current_contract_id}")
                     self.last_trade_time = datetime.now()
+                    await self.subscribe_to_contract(self.current_contract_id)
                     
         except Exception as e:
             logger.error(f"Error placing trade: {str(e)}")
+
+    async def subscribe_to_ticks(self, symbol=None):
+        """Subscribe to price ticks for a symbol"""
+        try:
+            if symbol is None:
+                symbol = self.symbol
+                
+            if not self.authorized:
+                raise ConnectionError("Not authorized. Please connect first.")
+                
+            subscribe_req = {
+                "ticks": symbol,
+                "subscribe": 1
+            }
+            await self.connection.send(json.dumps(subscribe_req))
+            response = await self.connection.recv()
+            
+            data = json.loads(response)
+            if "error" in data:
+                raise ConnectionError(f"Tick subscription failed: {data['error']['message']}")
+            logger.info(f"Successfully subscribed to {symbol} ticks")
+            
+        except Exception as e:
+            logger.error(f"Error subscribing to ticks: {str(e)}")
+            raise
 
     def calculate_rsi(self, prices, period=14):
         """Calculate RSI values with proper handling of edge cases"""
@@ -231,31 +278,6 @@ class DerivTradingBot:
             
         return ch_mid, ch_up, ch_down
 
-    async def subscribe_to_ticks(self, symbol=None):
-        """Subscribe to price ticks for a symbol"""
-        try:
-            if symbol is None:
-                symbol = self.symbol
-                
-            if not self.authorized:
-                raise ConnectionError("Not authorized. Please connect first.")
-                
-            subscribe_req = {
-                "ticks": symbol,
-                "subscribe": 1
-            }
-            await self.connection.send(json.dumps(subscribe_req))
-            response = await self.connection.recv()
-            
-            data = json.loads(response)
-            if "error" in data:
-                raise ConnectionError(f"Tick subscription failed: {data['error']['message']}")
-            logger.info(f"Successfully subscribed to {symbol} ticks")
-            
-        except Exception as e:
-            logger.error(f"Error subscribing to ticks: {str(e)}")
-            raise
-
     def check_signals(self, rs_values, ch_up, ch_down):
         """Check for trading signals with additional validation"""
         signals = []
@@ -287,13 +309,22 @@ class DerivTradingBot:
         """Main bot loop"""
         try:
             await self.connect()
-            await self.subscribe_to_ticks()
+            await self.subscribe_to_ticks(self.symbol)
             
             while True:
                 try:
                     response = await self.connection.recv()
                     data = json.loads(response)
                     
+                    # Handle contract updates
+                    if "proposal_open_contract" in data:
+                        contract = data["proposal_open_contract"]
+                        if contract["status"] in ["sold", "expired"]:
+                            self.active_trade = False
+                            self.current_contract_id = None
+                            logger.info(f"Contract {contract['contract_id']} finished with status: {contract['status']}")
+                    
+                                        # Handle tick data
                     if "tick" in data:
                         price = data["tick"]["quote"]
                         self.current_price = price
@@ -307,13 +338,14 @@ class DerivTradingBot:
                                                          self.rsi_length)
                             ch_mid, ch_up, ch_down = self.calculate_channels(rs_values)
                             
-                            signals = self.check_signals(rs_values, ch_up, ch_down)
-                            
-                            for direction, _ in signals:
-                                # Fixed: Using self.place_trade instead of place_trade
-                                await self.place_trade(direction)
+                            # Only check for signals if no active trade
+                            if not self.active_trade:
+                                signals = self.check_signals(rs_values, ch_up, ch_down)
                                 
-                    await asyncio.sleep(0.1)  # Add small delay to prevent CPU overuse
+                                for direction, _ in signals:
+                                    await self.place_trade(direction)
+                                
+                    await asyncio.sleep(0.1)
                     
                 except Exception as e:
                     logger.error(f"Error processing tick: {str(e)}")
