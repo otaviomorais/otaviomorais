@@ -7,6 +7,7 @@ import traceback
 import websockets
 from datetime import datetime
 from dotenv import load_dotenv
+import time
 
 class DerivTradingBot:
     def __init__(self):
@@ -15,7 +16,6 @@ class DerivTradingBot:
         self.half_length = 2
         self.dev_period = 100
         self.deviations = 0.7
-        self.volume_threshold = 100  # Volume threshold for generating signals
         
         # Trading parameters
         self.api_url = "wss://ws.derivws.com/websockets/v3?app_id="
@@ -35,7 +35,6 @@ class DerivTradingBot:
         self.ch_mid = []
         self.ch_up = []
         self.ch_down = []
-        self.volumes = []
         self.authorized = False
         self.current_price = None
         self.last_trade_time = None
@@ -223,19 +222,14 @@ class DerivTradingBot:
                     
                     if "tick" in data:
                         price = data["tick"]["quote"]
-                        volume = data["tick"].get("volume", None)
                         self.current_price = price
                         self.prices.append(price)
-                        if volume is not None:
-                            self.volumes.append(volume)
                         
                         # Log received data for debugging
                         logger.debug(f"Received tick data: {data}")
                         
                         if len(self.prices) > self.history_size:
                             self.prices.pop(0)
-                            if volume is not None:
-                                self.volumes.pop(0)
                         
                         if len(self.prices) > self.rsi_length:
                             # Calculate all indicators
@@ -256,7 +250,6 @@ class DerivTradingBot:
                             current_bb_lower = bb_lower[-1] if len(bb_lower) > 0 else None
                             current_ema50 = ema50[-1]
                             current_ema200 = ema200[-1]
-                            current_volume = self.volumes[-1] if self.volumes else None
                             
                             # Log indicators every 5 seconds
                             current_time = datetime.now()
@@ -268,12 +261,11 @@ class DerivTradingBot:
                                     f"MACD: {current_macd:.2f}/{current_signal:.2f} | "
                                     f"BB: {current_bb_lower:.2f}/{current_bb_middle:.2f}/{current_bb_upper:.2f} | "
                                     f"EMA: 50={current_ema50:.2f}/200={current_ema200:.2f} | "
-                                    f"Volume: {current_volume} | "
                                     f"Active: {'Yes' if self.active_trade else 'No'}"
                                 )
                             
                             # Only check for signals if no active trade
-                            if not self.active_trade and current_volume is not None:
+                            if not self.active_trade:
                                 # Buy Signals (Multiple conditions must be met)
                                 buy_conditions = [
                                     current_rsi < 30,  # RSI oversold
@@ -282,7 +274,6 @@ class DerivTradingBot:
                                     current_hist > 0,  # MACD histogram positive
                                     price < current_bb_lower if current_bb_lower else False,  # Price below BB lower
                                     current_ema50 > current_ema200,  # Golden cross (uptrend)
-                                    current_volume >= self.volume_threshold  # Volume threshold
                                 ]
                                 
                                 # Sell Signals (Multiple conditions must be met)
@@ -293,28 +284,25 @@ class DerivTradingBot:
                                     current_hist < 0,  # MACD histogram negative
                                     price > current_bb_upper if current_bb_upper else False,  # Price above BB upper
                                     current_ema50 < current_ema200,  # Death cross (downtrend)
-                                    current_volume >= self.volume_threshold  # Volume threshold
                                 ]
 
                                 # Generate signals only if majority of conditions are met
-                                if sum(buy_conditions) >= 5:  # At least 5 out of 7 conditions
+                                if sum(buy_conditions) >= 4:  # At least 4 out of 6 conditions
                                     logger.info(
                                         f"BUY Signal | "
                                         f"RSI: {current_rsi:.2f} | "
                                         f"MACD: {current_macd:.2f} | "
                                         f"BB: {current_bb_middle:.2f} | "
-                                        f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f} | "
-                                        f"Volume: {current_volume}"
+                                        f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f}"
                                     )
                                     await self.place_trade("BUY")
-                                elif sum(sell_conditions) >= 5:  # At least 5 out of 7 conditions
+                                elif sum(sell_conditions) >= 4:  # At least 4 out of 6 conditions
                                     logger.info(
                                         f"SELL Signal | "
                                         f"RSI: {current_rsi:.2f} | "
                                         f"MACD: {current_macd:.2f} | "
                                         f"BB: {current_bb_middle:.2f} | "
-                                        f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f} | "
-                                        f"Volume: {current_volume}"
+                                        f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f}"
                                     )
                                     await self.place_trade("SELL")
                     
@@ -363,3 +351,4 @@ if __name__ == "__main__":
             traceback.print_exc()
             logger.info("Restarting bot in 5 seconds...")
             time.sleep(5)
+            continue
