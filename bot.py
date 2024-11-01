@@ -15,6 +15,7 @@ class DerivTradingBot:
         self.half_length = 2
         self.dev_period = 100
         self.deviations = 0.7
+        self.volume_threshold = 100  # Volume threshold for generating signals
         
         # Trading parameters
         self.api_url = "wss://ws.derivws.com/websockets/v3?app_id="
@@ -34,6 +35,7 @@ class DerivTradingBot:
         self.ch_mid = []
         self.ch_up = []
         self.ch_down = []
+        self.volumes = []
         self.authorized = False
         self.current_price = None
         self.last_trade_time = None
@@ -221,11 +223,19 @@ class DerivTradingBot:
                     
                     if "tick" in data:
                         price = data["tick"]["quote"]
+                        volume = data["tick"].get("volume", None)
                         self.current_price = price
                         self.prices.append(price)
+                        if volume is not None:
+                            self.volumes.append(volume)
+                        
+                        # Log received data for debugging
+                        logger.debug(f"Received tick data: {data}")
                         
                         if len(self.prices) > self.history_size:
                             self.prices.pop(0)
+                            if volume is not None:
+                                self.volumes.pop(0)
                         
                         if len(self.prices) > self.rsi_length:
                             # Calculate all indicators
@@ -246,6 +256,7 @@ class DerivTradingBot:
                             current_bb_lower = bb_lower[-1] if len(bb_lower) > 0 else None
                             current_ema50 = ema50[-1]
                             current_ema200 = ema200[-1]
+                            current_volume = self.volumes[-1] if self.volumes else None
                             
                             # Log indicators every 5 seconds
                             current_time = datetime.now()
@@ -257,11 +268,12 @@ class DerivTradingBot:
                                     f"MACD: {current_macd:.2f}/{current_signal:.2f} | "
                                     f"BB: {current_bb_lower:.2f}/{current_bb_middle:.2f}/{current_bb_upper:.2f} | "
                                     f"EMA: 50={current_ema50:.2f}/200={current_ema200:.2f} | "
+                                    f"Volume: {current_volume} | "
                                     f"Active: {'Yes' if self.active_trade else 'No'}"
                                 )
                             
                             # Only check for signals if no active trade
-                            if not self.active_trade:
+                            if not self.active_trade and current_volume is not None:
                                 # Buy Signals (Multiple conditions must be met)
                                 buy_conditions = [
                                     current_rsi < 30,  # RSI oversold
@@ -269,7 +281,8 @@ class DerivTradingBot:
                                     current_macd > current_signal,  # MACD crossover
                                     current_hist > 0,  # MACD histogram positive
                                     price < current_bb_lower if current_bb_lower else False,  # Price below BB lower
-                                    current_ema50 > current_ema200  # Golden cross (uptrend)
+                                    current_ema50 > current_ema200,  # Golden cross (uptrend)
+                                    current_volume >= self.volume_threshold  # Volume threshold
                                 ]
                                 
                                 # Sell Signals (Multiple conditions must be met)
@@ -279,26 +292,29 @@ class DerivTradingBot:
                                     current_macd < current_signal,  # MACD crossover
                                     current_hist < 0,  # MACD histogram negative
                                     price > current_bb_upper if current_bb_upper else False,  # Price above BB upper
-                                    current_ema50 < current_ema200  # Death cross (downtrend)
+                                    current_ema50 < current_ema200,  # Death cross (downtrend)
+                                    current_volume >= self.volume_threshold  # Volume threshold
                                 ]
 
-                                                                # Generate signals only if majority of conditions are met
-                                if sum(buy_conditions) >= 4:  # At least 4 out of 6 conditions
+                                # Generate signals only if majority of conditions are met
+                                if sum(buy_conditions) >= 5:  # At least 5 out of 7 conditions
                                     logger.info(
                                         f"BUY Signal | "
                                         f"RSI: {current_rsi:.2f} | "
                                         f"MACD: {current_macd:.2f} | "
                                         f"BB: {current_bb_middle:.2f} | "
-                                        f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f}"
+                                        f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f} | "
+                                        f"Volume: {current_volume}"
                                     )
                                     await self.place_trade("BUY")
-                                elif sum(sell_conditions) >= 4:  # At least 4 out of 6 conditions
+                                elif sum(sell_conditions) >= 5:  # At least 5 out of 7 conditions
                                     logger.info(
                                         f"SELL Signal | "
                                         f"RSI: {current_rsi:.2f} | "
                                         f"MACD: {current_macd:.2f} | "
                                         f"BB: {current_bb_middle:.2f} | "
-                                        f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f}"
+                                        f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f} | "
+                                        f"Volume: {current_volume}"
                                     )
                                     await self.place_trade("SELL")
                     
@@ -315,135 +331,6 @@ class DerivTradingBot:
         finally:
             if hasattr(self, 'connection'):
                 await self.connection.close()
-
-    async def connect(self):
-        """Connect to Deriv websocket API"""
-        try:
-            self.connection = await websockets.connect(f"{self.api_url}{self.app_id}")
-            
-            # Authorize
-            auth_req = {
-                "authorize": self.api_token
-            }
-            await self.connection.send(json.dumps(auth_req))
-            response = await self.connection.recv()
-            
-            if "error" in json.loads(response):
-                raise Exception(f"Authorization failed: {json.loads(response)['error']['message']}")
-            
-            self.authorized = True
-            logger.info("Successfully connected and authorized")
-            
-        except Exception as e:
-            logger.error(f"Connection error: {str(e)}")
-            raise
-
-    async def place_trade(self, direction):
-        """Place a trade with the specified direction"""
-        try:
-            # Check if enough time has passed since last trade
-            if self.last_trade_time:
-                time_since_last_trade = (datetime.now() - self.last_trade_time).seconds
-                if time_since_last_trade < self.min_time_between_trades:
-                    logger.info(f"Skipping trade, only {time_since_last_trade}s since last trade")
-                    return
-
-            # Prepare the contract request
-            contract_type = "CALL" if direction == "BUY" else "PUT"
-            
-            contract_req = {
-                "proposal": 1,
-                "amount": self.stake_amount,
-                "basis": "stake",
-                "contract_type": contract_type,
-                "currency": "USD",
-                "duration": self.contract_duration,
-                "duration_unit": self.contract_duration_unit,
-                "symbol": self.symbol
-            }
-
-            # Send the proposal request
-            await self.connection.send(json.dumps(contract_req))
-            response = await self.connection.recv()
-            proposal = json.loads(response)
-
-            if "error" in proposal:
-                raise Exception(f"Proposal error: {proposal['error']['message']}")
-
-            # Buy the contract
-            buy_req = {
-                "buy": proposal["proposal"]["id"],
-                "price": self.stake_amount
-            }
-
-            await self.connection.send(json.dumps(buy_req))
-            response = await self.connection.recv()
-            result = json.loads(response)
-
-            if "error" in result:
-                raise Exception(f"Buy error: {result['error']['message']}")
-
-            # Update trade tracking
-            self.active_trade = True
-            self.current_contract_id = result["buy"]["contract_id"]
-            self.last_trade_time = datetime.now()
-
-            logger.info(
-                f"Trade placed | "
-                f"Direction: {direction} | "
-                f"Contract ID: {self.current_contract_id} | "
-                f"Price: {self.current_price:.5f}"
-            )
-
-            # Start monitoring the trade
-            await self.monitor_trade(self.current_contract_id)
-
-        except Exception as e:
-            logger.error(f"Error placing trade: {str(e)}")
-            traceback.print_exc()
-
-    async def monitor_trade(self, contract_id):
-        """Monitor an active trade until it's completed"""
-        try:
-            # Subscribe to contract updates
-            proposal_open_contract_req = {
-                "proposal_open_contract": 1,
-                "contract_id": contract_id,
-                "subscribe": 1
-            }
-
-            await self.connection.send(json.dumps(proposal_open_contract_req))
-
-            while self.active_trade:
-                response = await self.connection.recv()
-                contract_update = json.loads(response)
-
-                if "error" in contract_update:
-                    raise Exception(f"Contract monitoring error: {contract_update['error']['message']}")
-
-                if "proposal_open_contract" in contract_update:
-                    contract = contract_update["proposal_open_contract"]
-
-                    # Check if contract is finished
-                    if contract["status"] in ["sold", "expired"]:
-                        profit_amount = float(contract["profit"])
-                        logger.info(
-                            f"Trade completed | "
-                            f"Contract ID: {contract_id} | "
-                            f"Profit: ${profit_amount:.2f} | "
-                            f"Status: {contract['status']}"
-                        )
-                        
-                        # Reset trade tracking
-                        self.active_trade = False
-                        self.current_contract_id = None
-                        break
-
-        except Exception as e:
-            logger.error(f"Error monitoring trade: {str(e)}")
-            traceback.print_exc()
-            self.active_trade = False
-            self.current_contract_id = None
 
 if __name__ == "__main__":
     # Configure logging
