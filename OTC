@@ -45,6 +45,10 @@ double SigUp[];
 double SigDn[];
 double Vol[];
 
+// Variáveis para armazenar os sinais
+double LastBuySignal = EMPTY_VALUE;
+double LastSellSignal = EMPTY_VALUE;
+
 //------------------------------------------------------------------
 int init()
 {
@@ -124,33 +128,36 @@ int start()
    // Gerar sinais
    for (int index = 0; index < limit; index++)
    {   
+      Vol[index] = Volume[index]; // Captura o volume
+
+      // Inicializar sinais como EMPTY_VALUE
       SigUp[index] = EMPTY_VALUE;
       SigDn[index] = EMPTY_VALUE;
-      
-      Vol[index] = Volume[index]; // Captura o volume
 
       // Sinal de compra
       if(RS[index] < ChDn[index] && RS[index+1] > ChDn[index+1] && Vol[index] >= VolumeThreshold)
       { 
-         if (NoDellArr || ObjectFind("BuyArrow") == -1) // Check if arrow object already exists
+         if (NoDellArr || ObjectFind("BuyArrow") == -1) // Verificar se o objeto seta já existe
          {
             ObjectCreate("BuyArrow", OBJ_ARROW, 0, Time[index], Low[index] - Point*ArrowOffset);
             ObjectSet("BuyArrow", OBJPROP_ARROWCODE, 233);
             ObjectSet("BuyArrow", OBJPROP_COLOR, ArrowColorBuy);
          }
-         SigUp[index] = Low[index] - Point*ArrowOffset;
+         LastBuySignal = Low[index] - Point*ArrowOffset;
+         SigUp[index] = LastBuySignal;
       }
 
-      // Sinal de venda
-      if(RS[index] > ChUp[index] && RS[index+1] < ChUp[index+1] && Vol[index] >= VolumeThreshold)
+      // Sinal de venda (somente se não houver sinal de compra na mesma vela)
+      if(RS[index] > ChUp[index] && RS[index+1] < ChUp[index+1] && Vol[index] >= VolumeThreshold && SigUp[index] == EMPTY_VALUE)
       {
-         if (NoDellArr || ObjectFind("SellArrow") == -1) // Check if arrow object already exists
+         if (NoDellArr || ObjectFind("SellArrow") == -1) // Verificar se o objeto seta já existe
          {
             ObjectCreate("SellArrow", OBJ_ARROW, 0, Time[index], High[index] + Point*ArrowOffset);
             ObjectSet("SellArrow", OBJPROP_ARROWCODE, 234);
             ObjectSet("SellArrow", OBJPROP_COLOR, ArrowColorSell);
          }
-         SigDn[index] = High[index] + Point*ArrowOffset;
+         LastSellSignal = High[index] + Point*ArrowOffset;
+         SigDn[index] = LastSellSignal;
       }
    }
 
