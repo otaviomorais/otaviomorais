@@ -122,16 +122,12 @@ int start()
    }    
 
    // Gerar sinais
-   for (int index = limit - 1; index >= 0; index--)
+   for (int index = 0; index < limit; index++)
    {   
       SigUp[index] = EMPTY_VALUE;
       SigDn[index] = EMPTY_VALUE;
       
       Vol[index] = Volume[index]; // Captura o volume
-      
-         // Verificar se estamos na vela atual
-        if (index != 0) continue;
-
 
       // Sinal de compra
       if(RS[index] < ChDn[index] && RS[index+1] > ChDn[index+1] && Vol[index] >= VolumeThreshold)
