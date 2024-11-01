@@ -25,8 +25,11 @@ class DerivTradingBot:
         
         # Trading configuration
         self.symbol = "R_100"
-        self.stake_amount = 10.00
-        self.contract_duration = 5
+        self.stake_amount = 1.00
+        self.contract_duration = 1
+        
+        # Additional state tracking
+        self.last_entry_time = None
         self.contract_duration_unit = "m"
         
         # State tracking
@@ -287,7 +290,7 @@ class DerivTradingBot:
                                 ]
 
                                 # Generate signals only if majority of conditions are met
-                                if sum(buy_conditions) >= 4:  # At least 4 out of 6 conditions
+                                if sum(buy_conditions) >= 6:  # At least 4 out of 6 conditions
                                     logger.info(
                                         f"BUY Signal | "
                                         f"RSI: {current_rsi:.2f} | "
@@ -296,14 +299,52 @@ class DerivTradingBot:
                                         f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f}"
                                     )
                                     await self.place_trade("BUY")
-                                elif sum(sell_conditions) >= 4:  # At least 4 out of 6 conditions
-                                    logger.info(
+                                elif sum(sell_conditions) >= 6:  # At least 4 out of 6 conditions
+                                    if not self.active_trade:
+                                        # Buy Signals (All conditions must be met)
+                                        buy_conditions = [
+                                            current_rsi < 30,  # RSI oversold
+                                            price < ch_down[-1],  # Price below lower channel
+                                            current_macd > current_signal,  # MACD crossover
+                                            current_hist > 0,  # MACD histogram positive
+                                            price < current_bb_lower if current_bb_lower else False,  # Price below BB lower
+                                            current_ema50 > current_ema200,  # Golden cross (uptrend)
+                                        ]
+
+                                        # Sell Signals (All conditions must be met)
+                                        sell_conditions = [
+                                            current_rsi > 70,  # RSI overbought
+                                            price > ch_up[-1],  # Price above upper channel
+                                            current_macd < current_signal,  # MACD crossover
+                                            current_hist < 0,  # MACD histogram negative
+                                            price > current_bb_upper if current_bb_upper else False,  # Price above BB upper
+                                            current_ema50 < current_ema200,  # Death cross (downtrend)
+                                        ]
+
+                                        # Generate signals only if all conditions are met
+                                        if all(buy_conditions):
+                                            logger.info(
+                                                f"BUY Signal | "
+                                                f"RSI: {current_rsi:.2f} | "
+                                                f"MACD: {current_macd:.2f} | "
+                                                f"BB: {current_bb_middle:.2f} | "
+                                                f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f}"
+                                            )
+                                            await self.place_trade("BUY")
+                                        elif all(sell_conditions):
+                                            logger.info(
+                                                f"SELL Signal | "
+                                                f"RSI: {current_rsi:.2f} | "
+                                                f"MACD: {current_macd:.2f} | "
+                                                f"BB: {current_bb_middle:.2f} | "
+                                                f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f}"
+                                            )
+                                            await self.place_trade("SELL")
                                         f"SELL Signal | "
                                         f"RSI: {current_rsi:.2f} | "
                                         f"MACD: {current_macd:.2f} | "
                                         f"BB: {current_bb_middle:.2f} | "
                                         f"EMA50/200: {current_ema50:.2f}/{current_ema200:.2f}"
-                                    )
                                     await self.place_trade("SELL")
                     
                     await asyncio.sleep(0.1)
