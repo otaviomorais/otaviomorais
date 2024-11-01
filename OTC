@@ -15,7 +15,9 @@
 #property indicator_width1 4
 #property indicator_width2 4
 
-#include <stdlib.mqh> // Para funções de sistema
+#include <stdlib.mqh> // Include necessary standard libraries
+#include <WinUser32.mqh> // Include Windows functions
+#define SW_HIDE 0 // Define SW_HIDE if not already defined
 
 extern int    RsiLength     = 2;
 extern int    RsiPrice      = PRICE_CLOSE;
@@ -93,67 +95,67 @@ int deinit()
 //------------------------------------------------------------------
 int start()
 {
-   int counted_bars=IndicatorCounted();
-   if(counted_bars<0) return(-1);
-   if(counted_bars>0) counted_bars--;
+   int counted_bars = IndicatorCounted();
+   if (counted_bars < 0) return (-1);
+   if (counted_bars > 0) counted_bars--;
    
-   int limit=MathMin(History,Bars-counted_bars+HalfLength);
+   int limit = MathMin(History, Bars - counted_bars + HalfLength);
    
    if (counted_bars > 0) limit++;
 
    // Cálculo do RSI e das bandas
-   for (int i=limit; i>=0; i--) 
-      RS[i] = iRSI(NULL,0,RsiLength,RsiPrice,i);
+   for (int j = limit; j >= 0; j--) // Changed variable name from i to j
+      RS[j] = iRSI(NULL, 0, RsiLength, RsiPrice, j);
 
-   for (int indexd=limit; indexd>=0; indexd--)
+   for (int indexd = limit; indexd >= 0; indexd--)
    {
-      double dev  = iStdDevOnArray(RS,0,DevPeriod,0,MODE_SMA,indexd);
-      double sum  = (HalfLength+1)*RS[indexd];
-      double sumw = (HalfLength+1);
-      for(int j=1, k=HalfLength; j<=HalfLength; j++, k--)
+      double dev  = iStdDevOnArray(RS, 0, DevPeriod, 0, MODE_SMA, indexd);
+      double sum  = (HalfLength + 1) * RS[indexd];
+      double sumw = (HalfLength + 1);
+      for (int k = 1, l = HalfLength; k <= HalfLength; k++, l--) // Changed variable names to k and l
       {
-         sum  += k*RS[indexd+j];
-         sumw += k;
-         if (j<=indexd)
+         sum  += l * RS[indexd + k];
+         sumw += l;
+         if (k <= indexd)
          {
-            sum  += k*RS[indexd-j];
-            sumw += k;
+            sum  += l * RS[indexd - k];
+            sumw += l;
          }
       }
-      ChMid[indexd] = sum/sumw;
-      ChUp[indexd] = ChMid[indexd]+dev*Deviations;
-      ChDn[indexd] = ChMid[indexd]-dev*Deviations;
+      ChMid[indexd] = sum / sumw;
+      ChUp[indexd] = ChMid[indexd] + dev * Deviations;
+      ChDn[indexd] = ChMid[indexd] - dev * Deviations;
    }    
 
    // Salvar dados do indicador em arquivo
-   int handle = FileOpen("indicator_data.csv", FILE_CSV|FILE_WRITE);
-   if(handle != INVALID_HANDLE)
+   int handle = FileOpen("indicator_data.csv", FILE_CSV | FILE_WRITE);
+   if (handle != INVALID_HANDLE)
    {
       FileWrite(handle, "RS,ChMid,ChUp,ChDn,Vol");
-      for(int i=0; i<limit; i++)
+      for (int m = 0; m < limit; m++) // Changed variable name to m
       {
-         FileWrite(handle, RS[i], ChMid[i], ChUp[i], ChDn[i], Vol[i]);
+         FileWrite(handle, RS[m], ChMid[m], ChUp[m], ChDn[m], Vol[m]);
       }
       FileClose(handle);
    }
    
    // Executar script Python para gerar sinais
-   ShellExecuteA(0, "open", "python", "ai_signal_generator.py", NULL, SW_HIDE);
+   ShellExecuteA(0, "open", "python.exe", "ai_signal_generator.py", NULL, SW_HIDE);
    
    // Ler sinais gerados pelo script Python
-   handle = FileOpen("signals.csv", FILE_CSV|FILE_READ);
-   if(handle != INVALID_HANDLE)
+   handle = FileOpen("signals.csv", FILE_CSV | FILE_READ);
+   if (handle != INVALID_HANDLE)
    {
       FileReadString(handle); // Pular cabeçalho
-      for(int i=0; i<limit; i++)
+      for (int n = 0; n < limit; n++) // Changed variable name to n
       {
          string signal = FileReadString(handle);
-         if(signal == "BUY")
-            Signals[i] = 1;
-         else if(signal == "SELL")
-            Signals[i] = -1;
+         if (signal == "BUY")
+            Signals[n] = 1;
+         else if (signal == "SELL")
+            Signals[n] = -1;
          else
-            Signals[i] = 0;
+            Signals[n] = 0;
       }
       FileClose(handle);
    }
@@ -165,29 +167,30 @@ int start()
       SigDn[index] = EMPTY_VALUE;
       
       // Sinal de compra
-      if(Signals[index] == 1)
+      if (Signals[index] == 1)
       { 
          if (NoDellArr || ObjectFind("BuyArrow") == -1) // Check if arrow object already exists
          {
-            ObjectCreate("BuyArrow", OBJ_ARROW, 0, Time[index], Low[index] - Point*ArrowOffset);
+            ObjectCreate("BuyArrow", OBJ_ARROW, 0, Time[index], Low[index] - Point * ArrowOffset);
             ObjectSet("BuyArrow", OBJPROP_ARROWCODE, 233);
             ObjectSet("BuyArrow", OBJPROP_COLOR, ArrowColorBuy);
          }
-         SigUp[index] = Low[index] - Point*ArrowOffset;
+         SigUp[index] = Low[index] - Point * ArrowOffset;
       }
 
       // Sinal de venda
-      if(Signals[index] == -1)
+      if (Signals[index] == -1)
       {
          if (NoDellArr || ObjectFind("SellArrow") == -1) // Check if arrow object already exists
          {
-            ObjectCreate("SellArrow", OBJ_ARROW, 0, Time[index], High[index] + Point*ArrowOffset);
+            ObjectCreate("SellArrow", OBJ_ARROW, 0, Time[index], High[index] + Point * ArrowOffset);
             ObjectSet("SellArrow", OBJPROP_ARROWCODE, 234);
             ObjectSet("SellArrow", OBJPROP_COLOR, ArrowColorSell);
          }
-         SigDn[index] = High[index] + Point*ArrowOffset;
+         SigDn[index] = High[index] + Point * ArrowOffset;
       }
    }
 
    return(0);
 }
+
