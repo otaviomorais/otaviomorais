@@ -16,7 +16,10 @@
 #property indicator_width2 4
 
 #include <stdlib.mqh> // Include necessary standard libraries
-#include <WinUser32.mqh> // Include Windows functions
+#import "shell32.dll"
+int ShellExecuteA(int hwnd, string lpOperation, string lpFile, string lpParameters, string lpDirectory, int nShowCmd);
+#import
+
 #define SW_HIDE 0 // Define SW_HIDE if not already defined
 
 extern int    RsiLength     = 2;
@@ -104,22 +107,22 @@ int start()
    if (counted_bars > 0) limit++;
 
    // Cálculo do RSI e das bandas
-   for (int j = limit; j >= 0; j--) // Changed variable name from i to j
-      RS[j] = iRSI(NULL, 0, RsiLength, RsiPrice, j);
+   for (int i = limit; i >= 0; i--) 
+      RS[i] = iRSI(NULL, 0, RsiLength, RsiPrice, i);
 
    for (int indexd = limit; indexd >= 0; indexd--)
    {
       double dev  = iStdDevOnArray(RS, 0, DevPeriod, 0, MODE_SMA, indexd);
       double sum  = (HalfLength + 1) * RS[indexd];
       double sumw = (HalfLength + 1);
-      for (int k = 1, l = HalfLength; k <= HalfLength; k++, l--) // Changed variable names to k and l
+      for (int j = 1, k = HalfLength; j <= HalfLength; j++, k--)
       {
-         sum  += l * RS[indexd + k];
-         sumw += l;
-         if (k <= indexd)
+         sum  += k * RS[indexd + j];
+         sumw += k;
+         if (j <= indexd)
          {
-            sum  += l * RS[indexd - k];
-            sumw += l;
+            sum  += k * RS[indexd - j];
+            sumw += k;
          }
       }
       ChMid[indexd] = sum / sumw;
@@ -132,9 +135,9 @@ int start()
    if (handle != INVALID_HANDLE)
    {
       FileWrite(handle, "RS,ChMid,ChUp,ChDn,Vol");
-      for (int m = 0; m < limit; m++) // Changed variable name to m
+      for (int i = 0; i < limit; i++)
       {
-         FileWrite(handle, RS[m], ChMid[m], ChUp[m], ChDn[m], Vol[m]);
+         FileWrite(handle, RS[i], ChMid[i], ChUp[i], ChDn[i], Vol[i]);
       }
       FileClose(handle);
    }
@@ -147,15 +150,15 @@ int start()
    if (handle != INVALID_HANDLE)
    {
       FileReadString(handle); // Pular cabeçalho
-      for (int n = 0; n < limit; n++) // Changed variable name to n
+      for (int i = 0; i < limit; i++)
       {
          string signal = FileReadString(handle);
          if (signal == "BUY")
-            Signals[n] = 1;
+            Signals[i] = 1;
          else if (signal == "SELL")
-            Signals[n] = -1;
+            Signals[i] = -1;
          else
-            Signals[n] = 0;
+            Signals[i] = 0;
       }
       FileClose(handle);
    }
@@ -193,4 +196,5 @@ int start()
 
    return(0);
 }
+
 
