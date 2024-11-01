@@ -1,0 +1,34 @@
+# ai_signal_generator.py
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+import pandas as pd
+
+# Simulação de um modelo treinado (substitua pelo seu modelo real)
+model = RandomForestClassifier()
+scaler = StandardScaler()
+
+def generate_signals(data):
+    # Pré-processar os dados
+    data = scaler.transform(data)
+    
+    # Gerar previsões
+    predictions = model.predict(data)
+    
+    # Converter previsões em sinais de compra e venda
+    signals = []
+    for pred in predictions:
+        if pred == 1:
+            signals.append("BUY")
+        elif pred == -1:
+            signals.append("SELL")
+        else:
+            signals.append("HOLD")
+    return signals
+
+# Ler dados do arquivo
+data = pd.read_csv("indicator_data.csv")
+signals = generate_signals(data)
+
+# Salvar sinais em arquivo
+pd.DataFrame(signals, columns=["signal"]).to_csv("signals.csv", index=False)
