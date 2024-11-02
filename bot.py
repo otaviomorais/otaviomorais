@@ -18,6 +18,7 @@ class DerivTradingBot:
         self.bollinger_period = 20
         self.bollinger_std = 2
         self.cci_period = 5
+        self.running = True
 
         self.api_url = "wss://ws.derivws.com/websockets/v3?app_id="
         self.app_id = os.getenv('DERIV_APP_ID')
@@ -141,9 +142,8 @@ class DerivTradingBot:
         ticks_req = {"ticks": symbol, "subscribe": 1}
         await self.connection.send(json.dumps(ticks_req))
         logger.info(f"Subscribed to ticks for {symbol}")
-
     async def run(self):
-        while True:
+        while self.running:
             try:
                 await self.connect()
                 await self.subscribe_to_ticks(self.symbol)
@@ -315,14 +315,17 @@ class DerivBotGUI:
         self.status_label["text"] = "Bot Status: Running"
         
         self.update_status()
-
     def stop_bot(self):
+        if self.bot:
+            self.bot.running = False
         self.running = False
-        if self.bot and self.bot.connection:
-            asyncio.run(self.bot.connection.close())
+        
+        if self.bot_thread and self.bot_thread.is_alive():
+            self.bot_thread.join(timeout=2)
         
         self.start_button["state"] = "normal"
         self.stop_button["state"] = "disabled"
+        self.status_label["text"] = "Bot Status: Stopped"
         self.status_label["text"] = "Bot Status: Stopped"
 
     def update_status(self):
@@ -354,6 +357,144 @@ if __name__ == "__main__":
         logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
         logger.error("Please check your .env file")
         exit(1)
+        # Replace the subscribe_to_ticks method with subscribe_to_candles
+        async def subscribe_to_candles(self, symbol):
+            candles_req = {
+                "ticks_history": symbol,
+                "adjust_start_time": 1,
+                "count": 1000,
+                "end": "latest",
+                "granularity": 60,  # 1-minute candles
+                "start": 1,
+                "style": "candles",
+                "subscribe": 1
+            }
+            await self.connection.send(json.dumps(candles_req))
+            logger.info(f"Subscribed to candles for {symbol}")
 
+        # Modify the run method to handle candles
+        async def run(self):
+            while True:
+                try:
+                    await self.connect()
+                    await self.subscribe_to_candles(self.symbol)
+
+                    while True:
+                        try:
+                            response = await self.connection.recv()
+                            data = json.loads(response)
+
+                            if "candles" in data and data["candles"]:
+                                candle = data["candles"][-1]
+                                price = float(candle["close"])
+                                self.current_price = price
+                                self.prices.append(price)
+
+                                # Rest of your existing code remains the same
+                                if len(self.prices) > self.history_size:
+                                    self.prices.pop(0)
+
+                                # Continue with your existing analysis code...
+                                
+                            await asyncio.sleep(0.1)
+
+                        except websockets.exceptions.ConnectionClosedError as e:
+                            logger.error(f"WebSocket connection closed: {str(e)}")
+                            break
+                        except Exception as e:
+                            logger.error(f"Error processing candle: {str(e)}")
+                            traceback.print_exc()
+                            continue
+
+                except Exception as e:
+                    logger.error(f"Error in main loop: {str(e)}")
+                    traceback.print_exc()
+                finally:
+                    if hasattr(self, 'connection'):
+                        await self.connection.close()
+                    logger.info("Reconnecting in 5 seconds...")
+                    await asyncio.sleep(5)
     gui = DerivBotGUI()
     gui.run()
+    class DerivTradingBot:
+        async def subscribe_to_candles(self, symbol):
+            candles_req = {
+                "ticks_history": symbol,
+                "adjust_start_time": 1,
+                "count": 1000,
+                "end": "latest",
+                "granularity": 60,  # 1-minute candles
+                "style": "candles",
+                "subscribe": 1
+            }
+            await self.connection.send(json.dumps(candles_req))
+            logger.info(f"Subscribed to candles for {symbol}")
+
+        async def run(self):
+            while True:
+                try:
+                    await self.connect()
+                    await self.subscribe_to_candles(self.symbol)
+
+                    while True:
+                        try:
+                            response = await self.connection.recv()
+                            data = json.loads(response)
+
+                            if "candles" in data and data["candles"]:
+                                candle = data["candles"][-1]
+                                price = float(candle["close"])
+                                self.current_price = price
+                                self.prices.append(price)
+
+                                # Process the data
+                                if len(self.prices) > self.history_size:
+                                    self.prices.pop(0)
+
+                                if len(self.prices) >= max(self.rsi_period, self.bollinger_period, self.cci_period):
+                                    bb_middle, bb_upper, bb_lower = self.calculate_bollinger_bands(np.array(self.prices))
+                                    cci_values = self.calculate_cci(np.array(self.prices))
+                                    rsi_values = self.calculate_rsi(np.array(self.prices))
+
+                                    current_rsi = rsi_values[-1]
+                                    current_cci = cci_values[-1]
+                                    current_bb_middle = bb_middle[-1]
+                                    current_bb_upper = bb_upper[-1] 
+                                    current_bb_lower = bb_lower[-1]
+
+                                    current_time = datetime.now()
+                                    if (current_time - self.last_log_time).seconds >= 5:
+                                        self.last_log_time = current_time
+                                        logger.info(
+                                            f"Price: {price:.5f} | "
+                                            f"RSI: {current_rsi:.2f} | "
+                                            f"BB: {current_bb_lower:.2f}/{current_bb_middle:.2f}/{current_bb_upper:.2f} | "
+                                            f"CCI: {current_cci:.2f} | "
+                                            f"Active: {'Yes' if self.active_trade else 'No'}"
+                                        )
+
+                                    if not self.active_trade:
+                                        if price < current_bb_lower and current_rsi < 30 and current_cci < -100:
+                                            logger.info("BUY Signal")
+                                            await self.place_trade("BUY")
+                                        elif price > current_bb_upper and current_rsi > 70 and current_cci > 100:
+                                            logger.info("SELL Signal")
+                                            await self.place_trade("SELL")
+
+                            await asyncio.sleep(0.1)
+
+                        except websockets.exceptions.ConnectionClosedError as e:
+                            logger.error(f"WebSocket connection closed: {str(e)}")
+                            break
+                        except Exception as e:
+                            logger.error(f"Error processing candle: {str(e)}")
+                            traceback.print_exc()
+                            continue
+                except Exception as e:
+                    logger.error(f"Error in main loop: {str(e)}")
+                    traceback.print_exc()
+                finally:
+                    if hasattr(self, 'connection'):
+                        await self.connection.close()
+                    logger.info("Reconnecting in 5 seconds...")
+                    await asyncio.sleep(5)
