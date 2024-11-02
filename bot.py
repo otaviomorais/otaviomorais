@@ -1,3 +1,6 @@
+import tkinter as tk
+from tkinter import ttk
+import threading
 import os
 import json
 import logging
@@ -8,9 +11,6 @@ import websockets
 from datetime import datetime
 from dotenv import load_dotenv
 import time
-import tkinter as tk
-from tkinter import ttk
-import threading
 
 class DerivTradingBot:
     def __init__(self):
@@ -97,7 +97,8 @@ class DerivTradingBot:
 
     def calculate_cci(self, prices):
         period = self.cci_period
-        typical_price = (prices + prices + prices) / 3
+        prices_array = np.array(prices)
+        typical_price = (prices_array + prices_array + prices_array) / 3
         rolling_mean = np.array([np.mean(typical_price[max(0, i-period):i]) for i in range(1, len(typical_price)+1)])
         rolling_std = np.array([np.std(typical_price[max(0, i-period):i]) for i in range(1, len(typical_price)+1)])
         rolling_std = np.where(rolling_std == 0, 1e-10, rolling_std)  # Avoid division by zero
@@ -205,6 +206,121 @@ class DerivTradingBot:
                 logger.info("Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
 
+class DerivBotGUI:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("Deriv Trading Bot")
+        self.root.geometry("400x600")
+        
+        self.bot = None
+        self.bot_thread = None
+        self.running = False
+        
+        # Create frames
+        self.control_frame = ttk.LabelFrame(self.root, text="Bot Controls")
+        self.control_frame.pack(padx=10, pady=5, fill="x")
+        
+        self.status_frame = ttk.LabelFrame(self.root, text="Status")
+        self.status_frame.pack(padx=10, pady=5, fill="x")
+        
+        self.settings_frame = ttk.LabelFrame(self.root, text="Settings")
+        self.settings_frame.pack(padx=10, pady=5, fill="x")
+        
+        # Add controls
+        self.start_button = ttk.Button(self.control_frame, text="Start Bot", command=self.start_bot)
+        self.start_button.pack(pady=5)
+        
+        self.stop_button = ttk.Button(self.control_frame, text="Stop Bot", command=self.stop_bot)
+        self.stop_button.pack(pady=5)
+        self.stop_button["state"] = "disabled"
+        
+        # Status labels
+        self.status_label = ttk.Label(self.status_frame, text="Bot Status: Stopped")
+        self.status_label.pack(pady=5)
+        
+        self.price_label = ttk.Label(self.status_frame, text="Current Price: --")
+        self.price_label.pack(pady=5)
+        
+        self.rsi_label = ttk.Label(self.status_frame, text="RSI: --")
+        self.rsi_label.pack(pady=5)
+        
+        self.bb_label = ttk.Label(self.status_frame, text="Bollinger Bands: -- / -- / --")
+        self.bb_label.pack(pady=5)
+        
+        self.cci_label = ttk.Label(self.status_frame, text="CCI: --")
+        self.cci_label.pack(pady=5)
+        
+        # Settings inputs
+        ttk.Label(self.settings_frame, text="Stake Amount:").pack()
+        self.stake_entry = ttk.Entry(self.settings_frame)
+        self.stake_entry.insert(0, "1.00")
+        self.stake_entry.pack()
+        
+        ttk.Label(self.settings_frame, text="Symbol:").pack()
+        self.symbol_entry = ttk.Entry(self.settings_frame)
+        self.symbol_entry.insert(0, "R_100")
+        self.symbol_entry.pack()
+        
+        ttk.Label(self.settings_frame, text="RSI Period:").pack()
+        self.rsi_period_entry = ttk.Entry(self.settings_frame)
+        self.rsi_period_entry.insert(0, "7")
+        self.rsi_period_entry.pack()
+        
+        ttk.Label(self.settings_frame, text="Bollinger Period:").pack()
+        self.bollinger_period_entry = ttk.Entry(self.settings_frame)
+        self.bollinger_period_entry.insert(0, "20")
+        self.bollinger_period_entry.pack()
+        
+        ttk.Label(self.settings_frame, text="Bollinger Std Dev:").pack()
+        self.bollinger_std_entry = ttk.Entry(self.settings_frame)
+        self.bollinger_std_entry.insert(0, "2")
+        self.bollinger_std_entry.pack()
+        
+        ttk.Label(self.settings_frame, text="CCI Period:").pack()
+        self.cci_period_entry = ttk.Entry(self.settings_frame)
+        self.cci_period_entry.insert(0, "5")
+        self.cci_period_entry.pack()
+
+    def start_bot(self):
+        self.running = True
+        self.bot = DerivTradingBot()
+        self.bot.stake_amount = float(self.stake_entry.get())
+        self.bot.symbol = self.symbol_entry.get()
+        self.bot.rsi_period = int(self.rsi_period_entry.get())
+        self.bot.bollinger_period = int(self.bollinger_period_entry.get())
+        self.bot.bollinger_std = float(self.bollinger_std_entry.get())
+        self.bot.cci_period = int(self.cci_period_entry.get())
+        
+        self.bot_thread = threading.Thread(target=lambda: asyncio.run(self.bot.run()))
+        self.bot_thread.start()
+        
+        self.start_button["state"] = "disabled"
+        self.stop_button["state"] = "normal"
+        self.status_label["text"] = "Bot Status: Running"
+        
+        self.update_status()
+
+    def stop_bot(self):
+        self.running = False
+        if self.bot and self.bot.connection:
+            asyncio.run(self.bot.connection.close())
+        
+        self.start_button["state"] = "normal"
+        self.stop_button["state"] = "disabled"
+        self.status_label["text"] = "Bot Status: Stopped"
+
+    def update_status(self):
+        if self.running:
+            self.price_label["text"] = f"Current Price: {self.bot.current_price:.5f}" if self.bot.current_price else "Current Price: --"
+            self.rsi_label["text"] = f"RSI: {self.bot.calculate_rsi(self.bot.prices)[-1]:.2f}" if len(self.bot.prices) >= self.bot.rsi_period else "RSI: --"
+            bb_middle, bb_upper, bb_lower = self.bot.calculate_bollinger_bands(np.array(self.bot.prices)) if len(self.bot.prices) >= self.bot.bollinger_period else (None, None, None)
+            self.bb_label["text"] = f"Bollinger Bands: {bb_lower[-1]:.2f} / {bb_middle[-1]:.2f} / {bb_upper[-1]:.2f}" if bb_middle is not None else "Bollinger Bands: -- / -- / --"
+            self.cci_label["text"] = f"CCI: {self.bot.calculate_cci(self.bot.prices)[-1]:.2f}" if len(self.bot.prices) >= self.bot.cci_period else "CCI: --"
+            self.root.after(1000, self.update_status)
+
+    def run(self):
+        self.root.mainloop()
+
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
@@ -223,89 +339,5 @@ if __name__ == "__main__":
         logger.error("Please check your .env file")
         exit(1)
 
-    while True:
-        try:
-            bot = DerivTradingBot()
-            asyncio.run(bot.run())
-        except Exception as e:
-            logger.error(f"Bot crashed with error: {str(e)}")
-            traceback.print_exc()
-            # Stop the code from restarting in case of error when using GUI
-            if hasattr(gui, 'running') and not gui.running:
-                break
-            logger.info("Restarting bot in 5 seconds...")
-            time.sleep(5)
-            class DerivBotGUI:
-                def __init__(self):
-                    self.root = tk.Tk()
-                    self.root.title("Deriv Trading Bot")
-                    self.root.geometry("400x500")
-                    
-                    self.bot = None
-                    self.bot_thread = None
-                    self.running = False
-                    
-                    # Create frames
-                    self.control_frame = ttk.LabelFrame(self.root, text="Bot Controls")
-                    self.control_frame.pack(padx=10, pady=5, fill="x")
-                    
-                    self.status_frame = ttk.LabelFrame(self.root, text="Status")
-                    self.status_frame.pack(padx=10, pady=5, fill="x")
-                    
-                    self.settings_frame = ttk.LabelFrame(self.root, text="Settings")
-                    self.settings_frame.pack(padx=10, pady=5, fill="x")
-                    
-                    # Add controls
-                    self.start_button = ttk.Button(self.control_frame, text="Start Bot", command=self.start_bot)
-                    self.start_button.pack(pady=5)
-                    
-                    self.stop_button = ttk.Button(self.control_frame, text="Stop Bot", command=self.stop_bot)
-                    self.stop_button.pack(pady=5)
-                    self.stop_button["state"] = "disabled"
-                    
-                    # Status labels
-                    self.status_label = ttk.Label(self.status_frame, text="Bot Status: Stopped")
-                    self.status_label.pack(pady=5)
-                    
-                    self.price_label = ttk.Label(self.status_frame, text="Current Price: --")
-                    self.price_label.pack(pady=5)
-                    
-                    # Settings inputs
-                    ttk.Label(self.settings_frame, text="Stake Amount:").pack()
-                    self.stake_entry = ttk.Entry(self.settings_frame)
-                    self.stake_entry.insert(0, "1.00")
-                    self.stake_entry.pack()
-                    
-                    ttk.Label(self.settings_frame, text="Symbol:").pack()
-                    self.symbol_entry = ttk.Entry(self.settings_frame)
-                    self.symbol_entry.insert(0, "R_100")
-                    self.symbol_entry.pack()
-                    
-                def start_bot(self):
-                    self.running = True
-                    self.bot = DerivTradingBot()
-                    self.bot.stake_amount = float(self.stake_entry.get())
-                    self.bot.symbol = self.symbol_entry.get()
-                    
-                    self.bot_thread = threading.Thread(target=lambda: asyncio.run(self.bot.run()))
-                    self.bot_thread.start()
-                    
-                    self.start_button["state"] = "disabled"
-                    self.stop_button["state"] = "normal"
-                    self.status_label["text"] = "Bot Status: Running"
-                    
-                def stop_bot(self):
-                    self.running = False
-                    if self.bot and self.bot.connection:
-                        asyncio.run(self.bot.connection.close())
-                    
-                    self.start_button["state"] = "normal"
-                    self.stop_button["state"] = "disabled"
-                    self.status_label["text"] = "Bot Status: Stopped"
-                    
-                def run(self):
-                    self.root.mainloop()
-
-            if __name__ == "__main__":
-                gui = DerivBotGUI()
-                gui.run()
+    gui = DerivBotGUI()
+    gui.run()
