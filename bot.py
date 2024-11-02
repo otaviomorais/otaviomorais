@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 import time
 
 class DerivTradingBot:
-    def __init__(self):
+    def __init__(self, gui_callback=None):
         self.rsi_period = 7
         self.bollinger_period = 20
         self.bollinger_std = 2
@@ -39,6 +39,7 @@ class DerivTradingBot:
         self.active_trade = False
         self.current_contract_id = None
         self.connection = None
+        self.gui_callback = gui_callback
 
     async def connect(self):
         try:
@@ -97,8 +98,8 @@ class DerivTradingBot:
 
     def calculate_cci(self, prices):
         period = self.cci_period
-        prices_array = np.array(prices)
-        typical_price = (prices_array + prices_array + prices_array) / 3
+        # Since we only have one price, we'll use it as all components
+        typical_price = prices  # Using close price only as we don't have high/low
         rolling_mean = np.array([np.mean(typical_price[max(0, i-period):i]) for i in range(1, len(typical_price)+1)])
         rolling_std = np.array([np.std(typical_price[max(0, i-period):i]) for i in range(1, len(typical_price)+1)])
         rolling_std = np.where(rolling_std == 0, 1e-10, rolling_std)  # Avoid division by zero
@@ -129,6 +130,9 @@ class DerivTradingBot:
         self.active_trade = True
         self.last_trade_time = datetime.now()
         logger.info(f"Placed {direction} trade for {self.stake_amount} USD")
+
+        if self.gui_callback:
+            self.gui_callback(f"Placed {direction} trade for {self.stake_amount} USD at {self.last_trade_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
         await asyncio.sleep(self.contract_duration * 60)  # Assuming duration is in minutes
         self.active_trade = False
@@ -210,7 +214,7 @@ class DerivBotGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Deriv Trading Bot")
-        self.root.geometry("400x600")
+        self.root.geometry("400x650")
         
         self.bot = None
         self.bot_thread = None
@@ -225,6 +229,9 @@ class DerivBotGUI:
         
         self.settings_frame = ttk.LabelFrame(self.root, text="Settings")
         self.settings_frame.pack(padx=10, pady=5, fill="x")
+        
+        self.entry_frame = ttk.LabelFrame(self.root, text="Entradas Realizadas")
+        self.entry_frame.pack(padx=10, pady=5, fill="x")
         
         # Add controls
         self.start_button = ttk.Button(self.control_frame, text="Start Bot", command=self.start_bot)
@@ -280,10 +287,19 @@ class DerivBotGUI:
         self.cci_period_entry = ttk.Entry(self.settings_frame)
         self.cci_period_entry.insert(0, "5")
         self.cci_period_entry.pack()
-
+        
+        # Entries field
+        self.entries_text = tk.Text(self.entry_frame, height=10, state='disabled')
+        self.entries_text.pack(pady=5)
+        
+    def log_entry(self, message):
+        self.entries_text.config(state='normal')
+        self.entries_text.insert(tk.END, message + '\n')
+        self.entries_text.config(state='disabled')
+        
     def start_bot(self):
         self.running = True
-        self.bot = DerivTradingBot()
+        self.bot = DerivTradingBot(gui_callback=self.log_entry)
         self.bot.stake_amount = float(self.stake_entry.get())
         self.bot.symbol = self.symbol_entry.get()
         self.bot.rsi_period = int(self.rsi_period_entry.get())
@@ -317,7 +333,7 @@ class DerivBotGUI:
             self.bb_label["text"] = f"Bollinger Bands: {bb_lower[-1]:.2f} / {bb_middle[-1]:.2f} / {bb_upper[-1]:.2f}" if bb_middle is not None else "Bollinger Bands: -- / -- / --"
             self.cci_label["text"] = f"CCI: {self.bot.calculate_cci(self.bot.prices)[-1]:.2f}" if len(self.bot.prices) >= self.bot.cci_period else "CCI: --"
             self.root.after(1000, self.update_status)
-
+        
     def run(self):
         self.root.mainloop()
 
