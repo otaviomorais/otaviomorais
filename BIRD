@@ -1,0 +1,401 @@
+import pygame
+import random
+import math
+
+# Inicialização do Pygame
+pygame.init()
+
+# Som do pulo
+try:
+    SOM_PULO = pygame.mixer.Sound('pulo.wav')
+except:
+    SOM_PULO = None
+
+# Configurações da tela
+LARGURA = 400
+ALTURA = 600
+TELA = pygame.display.set_mode((LARGURA, ALTURA))
+pygame.display.set_caption('Flappy Bird - Corrupião')
+
+# Cores
+COR_CEU = (135, 206, 235)
+BRANCO = (255, 255, 255)
+VERDE_ESCURO = (34, 139, 34)
+VERDE_CLARO = (50, 205, 50)
+LARANJA = (255, 140, 0)
+LARANJA_ESCURO = (255, 69, 0)
+PRETO = (0, 0, 0)
+VERMELHO = (255, 0, 0)
+MARROM = (139, 69, 19)
+CINZA = (128, 128, 128)
+
+# Criando o pássaro com mais detalhes
+def criar_passaro_detalhado():
+    PASSARO_IMG = pygame.Surface((50, 40), pygame.SRCALPHA)
+    
+    # Corpo principal (laranja)
+    pygame.draw.ellipse(PASSARO_IMG, LARANJA, (10, 5, 35, 30))
+    
+    # Gradiente no corpo
+    for i in range(5):
+        pygame.draw.ellipse(PASSARO_IMG, LARANJA_ESCURO, (15 + i*2, 8, 25-i*2, 24-i*2), 1)
+    
+    # Cabeça (preta)
+    pygame.draw.ellipse(PASSARO_IMG, PRETO, (30, 0, 20, 20))
+    
+    # Bico mais detalhado
+    pygame.draw.polygon(PASSARO_IMG, (200, 200, 200), 
+                       [(45, 8), (50, 10), (45, 12), (47, 10)])
+    
+    # Asa com mais detalhes
+    pygame.draw.ellipse(PASSARO_IMG, PRETO, (15, 15, 20, 15))
+    pygame.draw.arc(PASSARO_IMG, BRANCO, (15, 15, 20, 15), 0, math.pi, 2)
+    
+    # Cauda mais elaborada
+    pygame.draw.polygon(PASSARO_IMG, LARANJA_ESCURO, 
+                       [(5, 15), (15, 20), (5, 25), (8, 20)])
+    
+    # Olho mais detalhado
+    pygame.draw.circle(PASSARO_IMG, BRANCO, (40, 8), 4)  # Branco do olho maior
+    pygame.draw.circle(PASSARO_IMG, PRETO, (41, 8), 2.5)  # Pupila
+    pygame.draw.circle(PASSARO_IMG, BRANCO, (40, 7), 1.5)  # Reflexo principal
+    pygame.draw.circle(PASSARO_IMG, BRANCO, (42, 9), 1)  # Reflexo secundário
+    
+    # Penas detalhadas
+    for i in range(3):
+        pygame.draw.arc(PASSARO_IMG, LARANJA_ESCURO,
+                       (15 + i*8, 5, 10, 20),
+                       math.pi/2, math.pi, 2)
+    
+    return PASSARO_IMG
+
+PASSARO_IMG = criar_passaro_detalhado()
+
+class MenuInicial:
+    def __init__(self):
+        self.fonte_titulo = pygame.font.Font(None, 48)
+        self.fonte_normal = pygame.font.Font(None, 36)
+        self.ativo = True
+        self.opcao_selecionada = 0
+        self.opcoes = ['Jogar', 'Sair']
+        
+    def desenhar(self, tela):
+        # Fundo com gradiente
+        for y in range(ALTURA):
+            cor = (
+                135 - (y / ALTURA) * 30,
+                206 - (y / ALTURA) * 30,
+                235 - (y / ALTURA) * 30
+            )
+            pygame.draw.line(tela, cor, (0, y), (LARGURA, y))
+        
+        # Título
+        titulo = self.fonte_titulo.render('Flappy Corrupião', True, PRETO)
+        titulo_rect = titulo.get_rect(center=(LARGURA//2, ALTURA//4))
+        tela.blit(titulo, titulo_rect)
+        
+        # Opções do menu
+        for i, opcao in enumerate(self.opcoes):
+            cor = VERMELHO if i == self.opcao_selecionada else PRETO
+            texto = self.fonte_normal.render(opcao, True, cor)
+            rect = texto.get_rect(center=(LARGURA//2, ALTURA//2 + i*50))
+            tela.blit(texto, rect)
+            
+    def processar_eventos(self):
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                return False
+            if evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_UP:
+                    self.opcao_selecionada = (self.opcao_selecionada - 1) % len(self.opcoes)
+                elif evento.key == pygame.K_DOWN:
+                    self.opcao_selecionada = (self.opcao_selecionada + 1) % len(self.opcoes)
+                elif evento.key == pygame.K_RETURN:
+                    if self.opcao_selecionada == 0:  # Jogar
+                        self.ativo = False
+                    elif self.opcao_selecionada == 1:  # Sair
+                        return False
+        return True
+
+class Montanha:
+    def __init__(self, x, altura):
+        self.x = x
+        self.altura = altura
+        self.velocidade = 1
+        self.cor = (100, 100, 100)
+        self.largura = random.randint(200, 300)
+        
+    def mover(self):
+        self.x -= self.velocidade
+        if self.x + self.largura < 0:
+            self.x = LARGURA
+            self.altura = random.randint(100, 200)
+            self.largura = random.randint(200, 300)
+            
+    def desenhar(self, tela):
+        # Desenha a montanha com gradiente e detalhes
+        pontos = [
+            (self.x, ALTURA),
+            (self.x + self.largura//2, ALTURA - self.altura),
+            (self.x + self.largura, ALTURA)
+        ]
+        
+        # Base da montanha
+        pygame.draw.polygon(tela, self.cor, pontos)
+        
+        # Neve no topo
+        neve_pontos = [
+            (self.x + self.largura//2 - 20, ALTURA - self.altura + 20),
+            (self.x + self.largura//2, ALTURA - self.altura),
+            (self.x + self.largura//2 + 20, ALTURA - self.altura + 20)
+        ]
+        pygame.draw.polygon(tela, BRANCO, neve_pontos)
+        
+        # Detalhes/sombras
+        for i in range(3):
+            offset = 20 * i
+            pygame.draw.line(tela, (80, 80, 80),
+                           (self.x + offset, ALTURA - offset),
+                           (self.x + self.largura//2, ALTURA - self.altura + offset))
+
+class Nuvem:
+    def __init__(self):
+        self.x = LARGURA + random.randint(0, 200)
+        self.y = random.randint(50, 200)
+        self.velocidade = 1
+        self.tamanho = random.randint(40, 80)
+        
+    def mover(self):
+        self.x -= self.velocidade
+        if self.x < -100:
+            self.x = LARGURA + random.randint(0, 200)
+            self.y = random.randint(50, 200)
+            
+    def desenhar(self):
+        # Desenha nuvem com mais detalhes e volume
+        for i in range(3):  # Camadas para dar volume
+            offset = i * 2
+            pygame.draw.ellipse(TELA, (250-i*5, 250-i*5, 250-i*5),
+                              (self.x-offset, self.y-offset,
+                               self.tamanho, self.tamanho//2))
+            pygame.draw.ellipse(TELA, (250-i*5, 250-i*5, 250-i*5),
+                              (self.x-self.tamanho//4-offset,
+                               self.y+5-offset, self.tamanho//2,
+                               self.tamanho//3))
+            pygame.draw.ellipse(TELA, (250-i*5, 250-i*5, 250-i*5),
+                              (self.x+self.tamanho//2-offset,
+                               self.y+5-offset, self.tamanho//2,
+                               self.tamanho//3))
+
+class Passaro:
+    def __init__(self):
+        self.x = LARGURA // 3
+        self.y = ALTURA // 2
+        self.velocidade = 0
+        self.gravidade = 0.5
+        self.pulo = -10
+        self.imagem = PASSARO_IMG
+        self.angulo = 0
+        self.max_angulo = 25
+        self.animacao_asa = 0
+        self.subindo_asa = True
+
+    def mover(self):
+        self.velocidade += self.gravidade
+        self.y += self.velocidade
+        
+        if self.velocidade < 0:
+            self.angulo = self.max_angulo
+        else:
+            if self.angulo > -90:
+                self.angulo -= 3
+        
+        if self.subindo_asa:
+            self.animacao_asa += 0.3
+            if self.animacao_asa > 5:
+                self.subindo_asa = False
+        else:
+            self.animacao_asa -= 0.3
+            if self.animacao_asa < -5:
+                self.subindo_asa = True
+
+    def pular(self):
+        self.velocidade = self.pulo
+        self.angulo = self.max_angulo
+
+    def desenhar(self):
+        imagem_atual = self.imagem.copy()
+        # Redesenha a asa com animação
+        pygame.draw.ellipse(imagem_atual, PRETO, 
+                          (15, 15 + self.animacao_asa, 20, 15))
+        pygame.draw.line(imagem_atual, BRANCO, 
+                        (20, 20 + self.animacao_asa), 
+                        (30, 20 + self.animacao_asa), 2)
+        
+        imagem_rotacionada = pygame.transform.rotate(imagem_atual, self.angulo)
+        rect = imagem_rotacionada.get_rect(center=(self.x + 25, self.y + 20))
+        TELA.blit(imagem_rotacionada, rect)
+
+    def get_mask(self):
+        return pygame.Rect(self.x, self.y, 45, 35)
+
+class Cano:
+    def __init__(self):
+        self.largura = 70
+        self.espaco = 200
+        self.x = LARGURA
+        self.altura_topo = random.randint(50, ALTURA - self.espaco - 50)
+        self.altura_base = ALTURA - (self.altura_topo + self.espaco)
+        self.velocidade = 3
+        self.passou = False
+
+    def mover(self):
+        self.x -= self.velocidade
+
+    def desenhar(self):
+        # Adiciona textura aos canos com linhas verticais mais escuras
+        pygame.draw.rect(TELA, VERDE_ESCURO, (self.x, 0, self.largura, self.altura_topo))
+        pygame.draw.rect(TELA, VERDE_CLARO, (self.x, self.altura_topo - 30, self.largura + 10, 30))
+        
+        for i in range(0, self.largura, 10):
+            pygame.draw.line(TELA, (30, 100, 30), 
+                           (self.x + i, 0), 
+                           (self.x + i, self.altura_topo),
+                           2)
+        
+        pygame.draw.rect(TELA, VERDE_ESCURO, 
+                        (self.x, ALTURA - self.altura_base, self.largura, self.altura_base))
+        pygame.draw.rect(TELA, VERDE_CLARO,
+                        (self.x, ALTURA - self.altura_base, self.largura + 10, 30))
+        
+        for i in range(0, self.largura, 10):
+            pygame.draw.line(TELA, (30, 100, 30),
+                           (self.x + i, ALTURA - self.altura_base),
+                           (self.x + i, ALTURA),
+                           2)
+
+    def colidiu(self, passaro):
+        passaro_rect = passaro.get_mask()
+        cano_topo = pygame.Rect(self.x, 0, self.largura, self.altura_topo)
+        cano_base = pygame.Rect(self.x, ALTURA - self.altura_base, self.largura, self.altura_base)
+        return passaro_rect.colliderect(cano_topo) or passaro_rect.colliderect(cano_base)
+
+def desenhar_fundo(montanhas):
+    # Desenhar céu com gradiente
+    for y in range(ALTURA):
+        cor = (
+            135 - (y / ALTURA) * 30,
+            206 - (y / ALTURA) * 30,
+            235 - (y / ALTURA) * 30
+        )
+        pygame.draw.line(TELA, cor, (0, y), (LARGURA, y))
+    
+    # Desenhar montanhas
+    for montanha in montanhas:
+        montanha.desenhar(TELA)
+    
+    # Desenhar grama com textura mais elaborada
+    pygame.draw.rect(TELA, VERDE_ESCURO, (0, ALTURA - 30, LARGURA, 30))
+    for x in range(0, LARGURA, 3):
+        altura_grama = random.randint(25, 30)
+        cor_grama = (
+            random.randint(40, 60),
+            random.randint(160, 180),
+            random.randint(40, 60)
+        )
+        pygame.draw.line(TELA, cor_grama,
+                        (x, ALTURA - 30),
+                        (x, ALTURA - altura_grama),
+                        2)
+
+def main():
+    clock = pygame.time.Clock()
+    fonte = pygame.font.Font(None, 36)
+    
+    # Iniciar com o menu
+    menu = MenuInicial()
+    while menu.ativo:
+        if not menu.processar_eventos():
+            pygame.quit()
+            return
+        menu.desenhar(TELA)
+        pygame.display.update()
+        clock.tick(60)
+    
+    passaro = Passaro()
+    canos = [Cano()]
+    nuvens = [Nuvem() for _ in range(5)]
+    montanhas = [Montanha(x * 250, random.randint(100, 200)) 
+                 for x in range(4)]
+    pontuacao = 0
+    rodando = True
+
+    while rodando:
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                return
+            if evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_SPACE:
+                    passaro.pular()
+                    if SOM_PULO:
+                        SOM_PULO.play()
+
+        passaro.mover()
+
+        if canos[-1].x < LARGURA - 200:
+            canos.append(Cano())
+
+        for cano in canos:
+            cano.mover()
+            if cano.colidiu(passaro):
+                rodando = False
+            if not cano.passou and cano.x < passaro.x:
+                cano.passou = True
+                pontuacao += 1
+
+        for nuvem in nuvens:
+            nuvem.mover()
+            
+        for montanha in montanhas:
+            montanha.mover()
+
+        canos = [cano for cano in canos if cano.x > -cano.largura]
+
+        if passaro.y < 0 or passaro.y > ALTURA - 35:
+            rodando = False
+
+        desenhar_fundo(montanhas)
+        
+        for nuvem in nuvens:
+            nuvem.desenhar()
+
+        for cano in canos:
+            cano.desenhar()
+            
+        passaro.desenhar()
+
+        texto_pontuacao = fonte.render(f'Pontuação: {pontuacao}', True, PRETO)
+        TELA.blit(texto_pontuacao, (10, 10))
+
+        pygame.display.update()
+        clock.tick(60)
+
+    # Tela de game over
+    while True:
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                return
+            if evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_RETURN:
+                    main()
+                    return
+
+        texto_game_over = fonte.render('Game Over! Pressione ENTER para reiniciar', True, VERMELHO)
+        texto_rect = texto_game_over.get_rect(center=(LARGURA//2, ALTURA//2))
+        TELA.blit(texto_game_over, texto_rect)
+        pygame.display.update()
+
+if __name__ == '__main__':
+    main()
