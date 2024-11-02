@@ -1,6 +1,6 @@
 import pygame
 import random
-import math
+import math  # Importar o módulo math
 
 # Inicialização do Pygame
 pygame.init()
@@ -12,7 +12,7 @@ except:
     SOM_PULO = None
 
 # Configurações da tela
-LARGURA = 400
+LARGURA = 800
 ALTURA = 600
 TELA = pygame.display.set_mode((LARGURA, ALTURA))
 pygame.display.set_caption('Flappy Bird - Corrupião')
@@ -22,12 +22,67 @@ COR_CEU = (135, 206, 235)
 BRANCO = (255, 255, 255)
 VERDE_ESCURO = (34, 139, 34)
 VERDE_CLARO = (50, 205, 50)
-LARANJA = (255, 140, 0)
-LARANJA_ESCURO = (255, 69, 0)
+LARANJA = (255, 165, 0)
+LARANJA_ESCURO = (255, 140, 0)
 PRETO = (0, 0, 0)
 VERMELHO = (255, 0, 0)
 MARROM = (139, 69, 19)
 CINZA = (128, 128, 128)
+
+class Gota:
+    def __init__(self):
+        self.x = random.randint(0, LARGURA)
+        self.y = random.randint(-100, 0)
+        self.velocidade = random.randint(5, 15)
+        self.comprimento = random.randint(5, 15)
+        
+    def mover(self):
+        self.y += self.velocidade
+        if self.y > ALTURA:
+            self.y = random.randint(-100, 0)
+            self.x = random.randint(0, LARGURA)
+            
+    def desenhar(self, tela):
+        pygame.draw.line(tela, CINZA, 
+                        (self.x, self.y), 
+                        (self.x, self.y + self.comprimento), 2)
+
+
+# Lista de gotas de chuva
+GOTAS = [Gota() for _ in range(100)]
+# Ajuste do letreiro de Game Over
+def desenhar_game_over(tela, fonte):
+    texto_game_over = fonte.render('Game Over! Pressione ENTER para reiniciar', True, VERMELHO)
+    texto_rect = texto_game_over.get_rect(center=(LARGURA // 2, ALTURA // 2))
+    
+    # Reduzir o tamanho da fonte se o texto exceder os limites da tela
+    while texto_rect.width > LARGURA or texto_rect.height > ALTURA:
+        fonte = pygame.font.Font(fonte.get_name(), fonte.get_size() - 1)
+        texto_game_over = fonte.render('Game Over! Pressione ENTER para reiniciar', True, VERMELHO)
+        texto_rect = texto_game_over.get_rect(center=(LARGURA // 2, ALTURA // 2))
+    
+    tela.blit(texto_game_over, texto_rect)
+    pygame.display.update()
+
+# Função para desenhar o menu inicial
+def desenhar_menu_inicial(tela, fonte):
+    texto_titulo = fonte.render('Flappy Bird - Corrupião', True, PRETO)
+    texto_rect = texto_titulo.get_rect(center=(LARGURA // 2, ALTURA // 2 - 50))
+    tela.blit(texto_titulo, texto_rect)
+    
+    texto_iniciar = fonte.render('Pressione ENTER para iniciar', True, PRETO)
+    texto_rect = texto_iniciar.get_rect(center=(LARGURA // 2, ALTURA // 2 + 50))
+    tela.blit(texto_iniciar, texto_rect)
+    pygame.display.update()
+
+# Função para desenhar o pássaro
+def desenhar_passaro(tela, passaro_rect):
+    pygame.draw.ellipse(tela, LARANJA, passaro_rect)
+
+# Função para desenhar os canos
+def desenhar_canos(tela, canos):
+    for cano in canos:
+        pygame.draw.rect(tela, VERDE_ESCURO, cano)
 
 # Criando o pássaro com mais detalhes
 def criar_passaro_detalhado():
@@ -35,7 +90,8 @@ def criar_passaro_detalhado():
     
     # Corpo principal (laranja)
     pygame.draw.ellipse(PASSARO_IMG, LARANJA, (10, 5, 35, 30))
-    
+    # Detalhes no corpo
+    pygame.draw.ellipse(PASSARO_IMG, LARANJA_ESCURO, (10, 5, 35, 30), 2)
     # Gradiente no corpo
     for i in range(5):
         pygame.draw.ellipse(PASSARO_IMG, LARANJA_ESCURO, (15 + i*2, 8, 25-i*2, 24-i*2), 1)
@@ -239,46 +295,77 @@ class Passaro:
     def get_mask(self):
         return pygame.Rect(self.x, self.y, 45, 35)
 
+# Adicionar às variáveis globais
+VELOCIDADE_CANOS = 3
+
 class Cano:
-    def __init__(self):
-        self.largura = 70
-        self.espaco = 200
-        self.x = LARGURA
-        self.altura_topo = random.randint(50, ALTURA - self.espaco - 50)
-        self.altura_base = ALTURA - (self.altura_topo + self.espaco)
-        self.velocidade = 3
+    def __init__(self, x=LARGURA):
+        self.largura = 50
+        self.abertura = 200
+        self.x = x
         self.passou = False
-
+        self.altura_inferior = random.randint(100, ALTURA - 100 - self.abertura)
+        self.cano_inferior = pygame.Rect(x, ALTURA - self.altura_inferior, 
+                                       self.largura, self.altura_inferior)
+        self.cano_superior = pygame.Rect(x, 0, self.largura, 
+                                       ALTURA - self.altura_inferior - self.abertura)
+        
+        # Cores para gradiente
+        self.VERDE_CLARO_2 = (60, 215, 60)
+        self.VERDE_MUITO_ESCURO = (25, 100, 25)
+    
+    def desenhar(self, tela):
+        # Desenhar corpo principal dos canos
+        pygame.draw.rect(tela, VERDE_ESCURO, self.cano_superior)
+        pygame.draw.rect(tela, VERDE_ESCURO, self.cano_inferior)
+        
+        # Adicionar bordas (contorno)
+        pygame.draw.rect(tela, self.VERDE_MUITO_ESCURO, self.cano_superior, 2)
+        pygame.draw.rect(tela, self.VERDE_MUITO_ESCURO, self.cano_inferior, 2)
+        
+        # Adicionar acabamento superior e inferior (bocas dos canos)
+        boca_superior = pygame.Rect(self.x - 5, 
+                                  self.cano_superior.bottom - 30,
+                                  self.largura + 10, 30)
+        boca_inferior = pygame.Rect(self.x - 5,
+                                  self.cano_inferior.top,
+                                  self.largura + 10, 30)
+        
+        pygame.draw.rect(tela, self.VERDE_MUITO_ESCURO, boca_superior)
+        pygame.draw.rect(tela, self.VERDE_MUITO_ESCURO, boca_inferior)
+        
+        # Adicionar highlight (reflexo)
+        pygame.draw.line(tela, self.VERDE_CLARO_2,
+                        (self.x + 5, self.cano_superior.top),
+                        (self.x + 5, self.cano_superior.bottom), 2)
+        pygame.draw.line(tela, self.VERDE_CLARO_2,
+                        (self.x + 5, self.cano_inferior.top),
+                        (self.x + 5, self.cano_inferior.bottom), 2)
+    
     def mover(self):
-        self.x -= self.velocidade
-
-    def desenhar(self):
-        # Adiciona textura aos canos com linhas verticais mais escuras
-        pygame.draw.rect(TELA, VERDE_ESCURO, (self.x, 0, self.largura, self.altura_topo))
-        pygame.draw.rect(TELA, VERDE_CLARO, (self.x, self.altura_topo - 30, self.largura + 10, 30))
-        
-        for i in range(0, self.largura, 10):
-            pygame.draw.line(TELA, (30, 100, 30), 
-                           (self.x + i, 0), 
-                           (self.x + i, self.altura_topo),
-                           2)
-        
-        pygame.draw.rect(TELA, VERDE_ESCURO, 
-                        (self.x, ALTURA - self.altura_base, self.largura, self.altura_base))
-        pygame.draw.rect(TELA, VERDE_CLARO,
-                        (self.x, ALTURA - self.altura_base, self.largura + 10, 30))
-        
-        for i in range(0, self.largura, 10):
-            pygame.draw.line(TELA, (30, 100, 30),
-                           (self.x + i, ALTURA - self.altura_base),
-                           (self.x + i, ALTURA),
-                           2)
-
+        self.x -= VELOCIDADE_CANOS
+        self.cano_inferior.x = self.x
+        self.cano_superior.x = self.x
+    
     def colidiu(self, passaro):
-        passaro_rect = passaro.get_mask()
-        cano_topo = pygame.Rect(self.x, 0, self.largura, self.altura_topo)
-        cano_base = pygame.Rect(self.x, ALTURA - self.altura_base, self.largura, self.altura_base)
-        return passaro_rect.colliderect(cano_topo) or passaro_rect.colliderect(cano_base)
+        passaro_mask = passaro.get_mask()
+        return passaro_mask.colliderect(self.cano_superior) or passaro_mask.colliderect(self.cano_inferior)
+
+# Lista de canos (inicializar com 2 canos)
+canos = [Cano(LARGURA + i * 300) for i in range(2)]
+
+# No loop principal do jogo, adicionar:
+def atualizar_canos():
+    for cano in canos:
+        cano.mover()
+        
+    # Remover canos que saíram da tela
+    for cano in canos[:]:
+        if cano.fora_da_tela():
+            canos.remove(cano)
+            # Adicionar novo cano
+            ultimo_cano = max(canos, key=lambda c: c.x)
+            canos.append(Cano(ultimo_cano.x + 300))
 
 def desenhar_fundo(montanhas):
     # Desenhar céu com gradiente
@@ -323,7 +410,7 @@ def main():
         clock.tick(60)
     
     passaro = Passaro()
-    canos = [Cano()]
+    canos = [Cano(LARGURA), Cano(LARGURA + 300)]  # Segundo cano 300px após o primeiro
     nuvens = [Nuvem() for _ in range(5)]
     montanhas = [Montanha(x * 250, random.randint(100, 200)) 
                  for x in range(4)]
@@ -371,7 +458,7 @@ def main():
             nuvem.desenhar()
 
         for cano in canos:
-            cano.desenhar()
+            cano.desenhar(TELA)
             
         passaro.desenhar()
 
