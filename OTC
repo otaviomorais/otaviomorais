@@ -1,30 +1,32 @@
 //+------------------------------------------------------------------+
-//|                                       BOB 5 KINGS NO REPAINT.mq4   |
-//|                            Copyright 2023,Lord FX premio           |
-//|                      https://t.me/lordfxindicadores                |
+//|                                       BOB 5 KINGS NO REPAINT.mq4 |
+//|                            Copyright 2023,Lord FX premio         |
+//|                      https://t.me/lordfxindicadores              |
 //+------------------------------------------------------------------+
 #property copyright   "LordFX Indicadores"
 #property description "Última atualização | 28/11/2023 |"
 #property description "https://t.me/lordfxindicadores"
-#property version   "1.02"
+#property version   "1.01"
 
-#property indicator_chart_window
+#property indicator_chart_window  // Modificado para exibir no gráfico principal
 #property indicator_buffers 8
 #property indicator_color5 Lime    // Sinal de Compra
 #property indicator_color6 Red     // Sinal de Venda
 #property indicator_width1 4
 #property indicator_width2 4
 
+
 extern int    RsiLength     = 2;
 extern int    RsiPrice      = PRICE_CLOSE;
 extern int    HalfLength    = 2;
 extern int    DevPeriod     = 100;
 extern double Deviations    = 0.7;
-extern double VolumeThreshold = 25;
+extern double VolumeThreshold = 100; // Limite de volume para gerar sinais
 
-extern color  ArrowColorBuy = clrLime;
-extern color  ArrowColorSell = clrRed;
-extern int    ArrowOffset   = 5;
+// Configurações das setas
+extern color  ArrowColorBuy = clrLime;  // Cor da seta de compra
+extern color  ArrowColorSell = clrRed;  // Cor da seta de venda
+extern int    ArrowOffset   = 5;    // Distância das setas do preço
 
 bool   NoDellArr     = true;
 bool   AlertsMessage = true;
@@ -42,12 +44,11 @@ double ChDn[];
 double SigUp[];
 double SigDn[];
 double Vol[];
-double LastSignalTime = 0;  // Variável para controlar o último sinal
 
-//+------------------------------------------------------------------+
+//------------------------------------------------------------------
 int init()
 {
-   HalfLength = MathMax(HalfLength,1);
+   HalfLength=MathMax(HalfLength,1);
    
    SetIndexBuffer(0,RS); 
    SetIndexBuffer(1,ChMid);
@@ -57,11 +58,13 @@ int init()
    SetIndexBuffer(5,SigDn);
    SetIndexBuffer(6,Vol);
    
+   // Configurar setas
    SetIndexStyle(4,DRAW_ARROW);
    SetIndexStyle(5,DRAW_ARROW);
    SetIndexArrow(4,233);
    SetIndexArrow(5,234);
    
+   // Esconder os outros buffers
    SetIndexStyle(0,DRAW_NONE);
    SetIndexStyle(1,DRAW_NONE);
    SetIndexStyle(2,DRAW_NONE);
@@ -70,83 +73,84 @@ int init()
    return(0);
 }
 
-//+------------------------------------------------------------------+
+//------------------------------------------------------------------
 int deinit() 
 { 
-   ObjectsDeleteAll(0, PREFIX);
+   // Corrigido o código para deletar objetos
+   for(int i = ObjectsTotal()-1; i >= 0; i--)
+   {
+      string objName = ObjectName(i);
+      if(StringFind(objName, PREFIX) == 0)  // Se o nome do objeto começa com o prefixo
+         ObjectDelete(objName);
+   }
    return(0); 
 }
 
-//+------------------------------------------------------------------+
+//------------------------------------------------------------------
 int start()
 {
-   int counted_bars = IndicatorCounted();
-   if(counted_bars < 0) return(-1);
-   if(counted_bars > 0) counted_bars--;
+   int counted_bars=IndicatorCounted();
+   if(counted_bars<0) return(-1);
+   if(counted_bars>0) counted_bars--;
    
-   int limit = MathMin(History, Bars-counted_bars+HalfLength);
+   int limit=MathMin(History,Bars-counted_bars+HalfLength);
    
-   // Calcular apenas a barra atual e a anterior para evitar repaint
-   if(counted_bars > 0) limit = 2;
+   if (counted_bars > 0) limit++;
 
    // Cálculo do RSI e das bandas
-   for(int i = limit; i >= 0; i--) 
-   {
-      RS[i] = iRSI(NULL, 0, RsiLength, RsiPrice, i);
-   }
+   for (int i=limit; i>=0; i--) 
+      RS[i] = iRSI(NULL,0,RsiLength,RsiPrice,i);
 
-   for(int indexd = limit; indexd >= 0; indexd--)
+   for (int indexd=limit; indexd>=0; indexd--)
    {
-      double dev = iStdDevOnArray(RS, 0, DevPeriod, 0, MODE_SMA, indexd);
-      double sum = (HalfLength+1)*RS[indexd];
+      double dev  = iStdDevOnArray(RS,0,DevPeriod,0,MODE_SMA,indexd);
+      double sum  = (HalfLength+1)*RS[indexd];
       double sumw = (HalfLength+1);
-      
-      for(int j = 1, k = HalfLength; j <= HalfLength; j++, k--)
+      for(int j=1, k=HalfLength; j<=HalfLength; j++, k--)
       {
-         sum += k*RS[indexd+j];
+         sum  += k*RS[indexd+j];
          sumw += k;
-         if(j <= indexd)
+         if (j<=indexd)
          {
-            sum += k*RS[indexd-j];
+            sum  += k*RS[indexd-j];
             sumw += k;
          }
       }
-      
       ChMid[indexd] = sum/sumw;
-      ChUp[indexd] = ChMid[indexd] + dev*Deviations;
-      ChDn[indexd] = ChMid[indexd] - dev*Deviations;
+      ChUp[indexd] = ChMid[indexd]+dev*Deviations;
+      ChDn[indexd] = ChMid[indexd]-dev*Deviations;
    }    
 
-   // Gerar sinais apenas para a barra atual
-   for(int index = 1; index >= 0; index--)
+   // Gerar sinais
+   for (int index = limit - 1; index >= 0; index--)
    {   
       SigUp[index] = EMPTY_VALUE;
       SigDn[index] = EMPTY_VALUE;
-      Vol[index] = Volume[index];
       
-      // Verificar se já foi gerado sinal nesta barra
-      if(Time[index] == LastSignalTime) continue;
+      Vol[index] = Volume[index]; // Captura o volume
       
-      // Sinal de compra - apenas na barra atual
-      if(index == 0 && 
-         RS[1] < ChDn[1] && RS[0] > ChDn[0] && 
-         Vol[0] >= VolumeThreshold)
-      {
-         SigUp[0] = Low[0] - Point*ArrowOffset;
-         LastSignalTime = Time[0];
-         
-         if(AlertsMessage) Alert("BOB 5 KINGS - Sinal de COMPRA em ", Symbol(), " ", Period());
+      // Sinal de compra
+      if(RS[index] < ChDn[index] && RS[index+1] > ChDn[index+1] && Vol[index] >= VolumeThreshold)
+      { 
+         if (NoDellArr || ObjectFind("BuyArrow") == -1) // Check if arrow object already exists
+         {
+            ObjectCreate("BuyArrow", OBJ_ARROW, 0, Time[index], Low[index] - Point*ArrowOffset);
+            ObjectSet("BuyArrow", OBJPROP_ARROWCODE, 233);
+            ObjectSet("BuyArrow", OBJPROP_COLOR, ArrowColorBuy);
+         }
+         SigUp[index] = Low[index] - Point*ArrowOffset;
       }
 
-      // Sinal de venda - apenas na barra atual
-      if(index == 0 && 
-         RS[1] > ChUp[1] && RS[0] < ChUp[0] && 
-         Vol[0] >= VolumeThreshold)
+      // Sinal de venda
+      if(RS[index] > ChUp[index] && RS[index+1] < ChUp[index+1] && Vol[index] >= VolumeThreshold)
       {
-         SigDn[0] = High[0] + Point*ArrowOffset;
-         LastSignalTime = Time[0];
-         
-         if(AlertsMessage) Alert("BOB 5 KINGS - Sinal de VENDA em ", Symbol(), " ", Period());
+         if (NoDellArr || ObjectFind("SellArrow") == -1) // Check if arrow object already exists
+         {
+            ObjectCreate("SellArrow", OBJ_ARROW, 0, Time[index], High[index] + Point*ArrowOffset);
+            ObjectSet("SellArrow", OBJPROP_ARROWCODE, 234);
+            ObjectSet("SellArrow", OBJPROP_COLOR, ArrowColorSell);
+         }
+         SigDn[index] = High[index] + Point*ArrowOffset;
       }
    }
 
