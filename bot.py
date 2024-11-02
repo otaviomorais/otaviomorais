@@ -18,6 +18,8 @@ class DerivTradingBot:
         self.bollinger_period = 20
         self.bollinger_std = 2
         self.cci_period = 5
+        self.stop_win = None
+        self.stop_loss = None
         self.running = True
 
         self.api_url = "wss://ws.derivws.com/websockets/v3?app_id="
@@ -185,6 +187,14 @@ class DerivTradingBot:
                                     )
 
                                 if not self.active_trade:
+                                    if self.stop_win and price >= self.stop_win:
+                                        logger.info("STOP WIN reached, stopping bot")
+                                        self.running = False
+                                        break
+                                    if self.stop_loss and price <= self.stop_loss:
+                                        logger.info("STOP LOSS reached, stopping bot")
+                                        self.running = False
+                                        break
                                     if price < current_bb_lower and current_rsi < 30 and current_cci < -100:
                                         logger.info("BUY Signal")
                                         await self.place_trade("BUY")
@@ -287,6 +297,16 @@ class DerivBotGUI:
         self.cci_period_entry = ttk.Entry(self.settings_frame)
         self.cci_period_entry.insert(0, "5")
         self.cci_period_entry.pack()
+
+        ttk.Label(self.settings_frame, text="Stop Win:").pack()
+        self.stop_win_entry = ttk.Entry(self.settings_frame)
+        self.stop_win_entry.insert(0, "0.00")
+        self.stop_win_entry.pack()
+
+        ttk.Label(self.settings_frame, text="Stop Loss:").pack()
+        self.stop_loss_entry = ttk.Entry(self.settings_frame)
+        self.stop_loss_entry.insert(0, "0.00")
+        self.stop_loss_entry.pack()
         
         # Entries field
         self.entries_text = tk.Text(self.entry_frame, height=10, state='disabled')
@@ -306,6 +326,8 @@ class DerivBotGUI:
         self.bot.bollinger_period = int(self.bollinger_period_entry.get())
         self.bot.bollinger_std = float(self.bollinger_std_entry.get())
         self.bot.cci_period = int(self.cci_period_entry.get())
+        self.bot.stop_win = float(self.stop_win_entry.get())
+        self.bot.stop_loss = float(self.stop_loss_entry.get())
         
         self.bot_thread = threading.Thread(target=lambda: asyncio.run(self.bot.run()))
         self.bot_thread.start()
